@@ -1,0 +1,18 @@
+pip==25.3
+
+keras
+
+keras-hub
+
+# jax[cuda13]
+tensorflow[and-cuda]
+tensorflow-text
+
+# don't need
+# ipython
+
+# don't need but nice to have
+matplotlib
+
+# dont need, only for troubleshooting
+# torch
