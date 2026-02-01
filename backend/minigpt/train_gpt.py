@@ -57,12 +57,21 @@ num_train_batches = num_batches - num_val_batches
 val_ds = ds.take(num_val_batches).repeat()
 train_ds = ds.skip(num_val_batches).repeat()
 
+vocab_size = tokenizer.vocabulary_size()
+hidden_dim = 512
+intermediate_dim = 2056
+num_heads = 8
+num_layers = 8
+
 from keras import layers
 
 class TransformerDecoder(keras.Layer):
     def __init__(self, hidden_dim, intermediate_dim, num_heads):
         super().__init__()
         key_dim = hidden_dim // num_heads
+        self.hidden_dim = hidden_dim
+        self.intermediate_dim = intermediate_dim
+        self.num_heads = num_heads
         self.self_attention = layers.MultiHeadAttention(
             num_heads, key_dim, dropout=0.1
         )
@@ -71,6 +80,9 @@ class TransformerDecoder(keras.Layer):
         self.feed_forward_2 = layers.Dense(hidden_dim)
         self.feed_forward_layernorm = layers.LayerNormalization()
         self.dropout = layers.Dropout(0.1)
+
+    def build(self, input_shape):
+        super().build(input_shape)
 
     def call(self, inputs):
         residual = x = inputs
@@ -86,13 +98,40 @@ class TransformerDecoder(keras.Layer):
         x = self.feed_forward_layernorm(x)
         return x
 
+    def get_config(self):
+        return {
+            "self_attention": self.self_attention,
+            "self_attention_layernorm": self.self_attention_layernorm,
+            "feed_forward_1": self.feed_forward_1,
+            "feed_forward_2": self.feed_forward_2,
+            "feed_forward_layernorm": self.feed_forward_layernorm,
+            "dropout": self.dropout,
+            "hidden_dim": self.hidden_dim,
+            "intermediate_dim": self.intermediate_dim,
+            "num_heads": self.num_heads
+        }
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(
+            config["hidden_dim"],
+            config["intermediate_dim"],
+            config["num_heads"]
+        )
+
 from keras import ops
 
 class PositionalEmbedding(keras.Layer):
     def __init__(self, sequence_length, input_dim, output_dim):
         super().__init__()
+        self.sequence_length = sequence_length
+        self.input_dim = input_dim
+        self.output_dim = output_dim
         self.token_embeddings = layers.Embedding(input_dim, output_dim)
         self.position_embeddings = layers.Embedding(sequence_length, output_dim)
+
+    def build(self, input_shape):
+        super().build(input_shape)
 
     def call(self, inputs, reverse=False):
         if reverse:
@@ -103,13 +142,24 @@ class PositionalEmbedding(keras.Layer):
         embedded_positions = self.position_embeddings(positions)
         return embedded_tokens + embedded_positions
 
-keras.config.set_dtype_policy("mixed_float16")
+    def get_config(self):
+        return {
+            "token_embeddings": self.token_embeddings,
+            "position_embeddings": self.position_embeddings,
+            "sequence_length": self.sequence_length,
+            "input_dim": self.input_dim,
+            "output_dim": self.output_dim,
+        }
 
-vocab_size = tokenizer.vocabulary_size()
-hidden_dim = 512
-intermediate_dim = 2056
-num_heads = 8
-num_layers = 8
+    @classmethod
+    def from_config(cls, config):
+        return cls(
+            config["sequence_length"],
+            config["input_dim"],
+            config["output_dim"]
+        )
+
+keras.config.set_dtype_policy("mixed_float16")
 
 inputs = keras.Input(shape=(None,), dtype="int32", name="inputs")
 embedding = PositionalEmbedding(sequence_length, vocab_size, hidden_dim)
@@ -137,10 +187,7 @@ class WarmupSchedule(keras.optimizers.schedules.LearningRateSchedule):
 
     @classmethod
     def from_config(cls, config):
-        obj = cls()
-        obj.rate = config["rate"]
-        obj.warmup_steps = config["warmup_steps"]
-        return obj
+        return cls()
 
 import matplotlib.pyplot as plt
 
@@ -156,9 +203,10 @@ num_epochs = 8
 steps_per_epoch = num_train_batches // num_epochs
 validation_steps = num_val_batches
 
-if "mini_gpt_model.keras" in os.listdir():
+MINI_GPT_MODEL_PATH = "mini_gpt.keras"
+if MINI_GPT_MODEL_PATH in os.listdir():
     mini_gpt = keras.models.load_model(
-        "mini_gpt_model.keras",
+        MINI_GPT_MODEL_PATH,
         custom_objects={"PositionalEmbedding": PositionalEmbedding,
                         "TransformerDecoder": TransformerDecoder,
                         "WarmupSchedule": WarmupSchedule},
@@ -177,7 +225,7 @@ else:
         steps_per_epoch=steps_per_epoch,
         validation_steps=validation_steps,
     )
-    mini_gpt.save("mini_gpt_model.keras")
+    mini_gpt.save(MINI_GPT_MODEL_PATH)
 
 def generate(prompt, max_length=64):
     tokens = list(ops.convert_to_numpy(tokenizer(prompt)))
@@ -228,11 +276,15 @@ def random_sample(preds, temperature=1.0):
 compiled_generate(prompt, random_sample)
 
 from functools import partial
-compiled_generate(prompt, partial(random_sample, temperature=2.0))
+response = compiled_generate(prompt, partial(random_sample, temperature=2.0))
+print(response)
 
-compiled_generate(prompt, partial(random_sample, temperature=0.8))
 
-compiled_generate(prompt, partial(random_sample, temperature=0.2))
+response = compiled_generate(prompt, partial(random_sample, temperature=0.8))
+print(response)
+
+response = compiled_generate(prompt, partial(random_sample, temperature=0.2))
+print(response)
 
 def top_k(preds, k=5, temperature=1.0):
     preds = preds / temperature
@@ -240,8 +292,11 @@ def top_k(preds, k=5, temperature=1.0):
     choice = keras.random.categorical(top_preds[None, :], num_samples=1)[0]
     return ops.take_along_axis(top_indices, choice, axis=-1)
 
-compiled_generate(prompt, partial(top_k, k=5))
+response = compiled_generate(prompt, partial(top_k, k=5))
+print(response)
 
-compiled_generate(prompt, partial(top_k, k=20))
+response = compiled_generate(prompt, partial(top_k, k=20))
+print(response)
 
-compiled_generate(prompt, partial(top_k, k=5, temperature=0.5))
+ret = compiled_generate(prompt, partial(top_k, k=5, temperature=0.5))
+print(ret)
