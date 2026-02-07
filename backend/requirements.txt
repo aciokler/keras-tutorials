@@ -1,18 +1,18 @@
 pip==25.3
 
-keras
+keras==3.13.2
 
-keras-hub
+keras-hub==0.25.1
 
 # jax[cuda13]
-tensorflow[and-cuda]
-tensorflow-text
+tensorflow[and-cuda]==2.20.0
+tensorflow-text==2.20.0
 
 # don't need
 # ipython
 
 # don't need but nice to have
-matplotlib
+matplotlib==3.10.8
 
 # dont need, only for troubleshooting
 # torch

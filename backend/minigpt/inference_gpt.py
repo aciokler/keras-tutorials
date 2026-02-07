@@ -1,5 +1,5 @@
 import os
-# os.environ["KERAS_BACKEND"] = "tensorflow"
+os.environ["KERAS_BACKEND"] = "tensorflow"
 # os.environ['CUDA_VISIBLE_DEVICES'] = "0"
 
 # Free up more GPU memory on the Jax and TensorFlow backends.
